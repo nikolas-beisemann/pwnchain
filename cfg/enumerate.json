@@ -1,0 +1,41 @@
+{
+	"name": "service-discovery",
+	"cmd": "nmap -sV {host}",
+	"vars": {
+		"host": "10.10.20.166",
+		"_service": "http|https"
+	},
+	"patterns": [
+		{
+			"pattern": "(\\d+)/tcp\\s+open\\s+({_service})\\s+(.*)",
+			"groups": [
+				"port",
+				"protocol",
+				"version"
+			],
+			"log": "found {protocol} at port {port} ({version})"
+		}
+	],
+	"logfile": "nmap_{host}.log",
+	"post": [
+		{
+			"condition": "'{protocol}' in ['http', 'https']",
+			"name": "directory-enum-{port}",
+			"cmd": "gobuster dir -w {_wordlist} -u {protocol}://{host}:{port} -z -q",
+			"vars": {
+				"_wordlist": "/usr/share/wordlists/directory-list-2.3-small.txt"
+			},
+			"patterns": [
+				{
+					"pattern": "^\\s*/(\\w+)",
+					"groups": [
+						"url"
+					],
+					"log": "found {protocol}://{host}:{port}/{url}"
+				}
+			],
+			"logfile": "gobuster_{host}_{port}.log",
+			"post": []
+		}
+	]
+}

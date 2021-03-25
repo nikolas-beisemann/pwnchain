@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+
+import logging
+
+version = "0.1.0"
+task_pool = []
+
+def exec_cmd(cmd, logger, logfile):
+	from subprocess import Popen, PIPE
+
+	with Popen(cmd.split(), stdout = PIPE, stderr = None, universal_newlines = True, bufsize = 1) as proc:
+		fp = None
+		if logfile:
+			try:
+				fp = open(logfile, "w")
+			except OSError:
+				logger.warning(f"failed to open {logfile} for writing")
+		for line in proc.stdout:
+			logger.debug(line)
+			if fp:
+				fp.write(line)
+			yield line
+
+
+def run_tool(cfg, save_logfiles, var = {}):
+	import re
+	from threading import Thread
+
+	for (key, val) in cfg["vars"].items():
+		var[key] = val
+	logger = logging.getLogger(cfg["name"].format(**var))
+
+	if "condition" in cfg:
+		condition = cfg["condition"].format(**var)
+		if eval(condition):
+			logger.debug(f"pre-condition '{condition}' passed")
+		else:
+			logger.debug(f"skipping because of pre-condition '{condition}'")
+			return
+
+	cmd = cfg["cmd"].format(**var)
+	patterns = []
+	for entry in cfg["patterns"]:
+		patterns.append({ 
+			"pattern": re.compile(entry["pattern"].format(**var)),
+			"groups": entry["groups"],
+			"log": entry["log"]
+			})
+	logfile = None
+	if save_logfiles and "logfile" in cfg:
+		logfile = cfg["logfile"].format(**var)
+	logger.debug(f"var={var}")
+	logger.debug(f"cmd={cmd}")
+
+	for line in exec_cmd(cmd, logger, logfile):
+		for entry in patterns:
+			match = entry["pattern"].match(line)
+			if match:
+				idx = 1
+				for group in entry["groups"]:
+					var[group] = match.group(idx)
+					idx += 1
+				logger.info(entry["log"].format(**var))
+				for task in cfg["post"]:
+					t = Thread(target = run_tool, args = (task, save_logfiles, var))
+					t.start()
+					task_pool.append(t)
+
+
+if __name__ == '__main__':
+	from optparse import OptionParser
+	from sys import exit
+	import json
+
+	usage = "Usage: %prog [options] config"
+	parser = OptionParser(usage = usage, version = version)
+	parser.add_option("-v", "--verbose", action = "store_true",
+		help = "Print debug log messages")
+	parser.add_option("-o", "--save-logfiles", action = "store_true",
+		help = "Save the output of each command to the specified logfile")
+	(options, args) = parser.parse_args()
+	if len(args) != 1:
+		print("Invalid number of arguments")
+		parser.print_help()
+		exit(1)
+
+	if options.verbose:
+		logging.basicConfig(level = logging.DEBUG)
+		logging.debug("verbose tracing enabled")
+	else:
+		logging.basicConfig(level = logging.INFO)
+
+	cfg = json.load(open(args[0]))
+	logging.debug(f"config {args[0]} read")
+
+	run_tool(cfg, options.save_logfiles)
+	for t in task_pool:
+		t.join()
