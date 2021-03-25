@@ -23,6 +23,13 @@ version = "0.1.0"
 task_pool = []
 
 def exec_cmd(cmd, logger, logfile):
+	"""Generator executing a command yielding output.
+
+	Keyword arguments:
+	cmd -- Command to execute as string
+	logger -- Used for logging
+	logfile -- Read output is stored to that file if not None
+	"""
 	from subprocess import Popen, PIPE
 
 	with Popen(cmd.split(), stdout = PIPE, stderr = None, universal_newlines = True, bufsize = 1) as proc:
@@ -40,6 +47,16 @@ def exec_cmd(cmd, logger, logfile):
 
 
 def run_tool(cfg, save_logfiles, var = {}):
+	"""Runs a single module defined in the config json.
+
+	Keyword arguments:
+	cfg -- json config pointing to the current module
+	save_logfiles -- bool flag indicating whether to save module output
+	var -- variables currently known to the module
+
+	Calls itself recursively, if matches are found and modules are defined in the post attribute.
+	A new thread is spawned for each match.
+	"""
 	import re
 	from threading import Thread
 
