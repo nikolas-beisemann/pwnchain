@@ -64,6 +64,10 @@ def run_tool(cfg, save_logfiles, var = {}):
 		var[key] = val
 	logger = logging.getLogger(cfg["name"].format(**var))
 
+	if "enabled" in cfg:
+		if not cfg["enabled"]:
+			logger.debug("skipping because module is disabled")
+			return
 	if "condition" in cfg:
 		condition = cfg["condition"].format(**var)
 		if eval(condition):
@@ -102,14 +106,24 @@ def run_tool(cfg, save_logfiles, var = {}):
 					task_pool.append(t)
 
 
-def update_cfg(cfg, mod, key, val):
+def update_cfg_vars(cfg, mod, key, val):
+	"""Update variables of module and all submodules."""
 	if re.search(mod, cfg["name"]):
 		for var in cfg["vars"]:
 			if re.search(key, var):
 				logging.debug(f"set {cfg['name']}.vars.{var}={val}")
 				cfg["vars"][var] = val
 	for subcfg in cfg["post"]:
-		update_cfg(subcfg, mod, key, val)
+		update_cfg_vars(subcfg, mod, key, val)
+
+
+def update_cfg_enabled(cfg, mod, enabled):
+	"""Update enabled state of module and all submodules."""
+	if re.search(mod, cfg["name"]):
+		cfg["enabled"] = enabled
+		logging.debug(f"set {cfg['name']}.enabled={enabled}")
+	for subcfg in cfg["post"]:
+		update_cfg_enabled(subcfg, mod, enabled)
 
 
 if __name__ == '__main__':
@@ -128,6 +142,10 @@ if __name__ == '__main__':
 		help = "save the output of each command to the specified logfile")
 	parser.add_argument("-s", "--set-var", action = "append", metavar = "module:key:val",
 		help = "override a module variable specified within the configuration")
+	parser.add_argument("--enable-mod", action = "append", metavar="module",
+		help = "enable a module which is marked enabled=False in the configuration")
+	parser.add_argument("--disable-mod", action = "append", metavar="module",
+		help = "disable a module which is marked enabled=True in the configuration")
 	parser.add_argument("cfg", help = ".json configuration file")
 
 	args = parser.parse_args()
@@ -152,10 +170,17 @@ if __name__ == '__main__':
 	cfg = json.load(open(args.cfg))
 	logging.debug(f"config {args.cfg} read")
 
-	for entry in args.set_var:
-		(mod, key, val) = entry.split(':')
-		logging.debug(f"trying to override variable '{key}={val}' in '{mod}'")
-		update_cfg(cfg, mod, key, val)
+	if args.set_var:
+		for entry in args.set_var:
+			(mod, key, val) = entry.split(':')
+			logging.debug(f"trying to override variable '{key}={val}' in '{mod}'")
+			update_cfg_vars(cfg, mod, key, val)
+	if args.enable_mod:
+		for entry in args.enable_mod:
+			update_cfg_enabled(cfg, entry, True)
+	if args.disable_mod:
+		for entry in args.disable_mod:
+			update_cfg_enabled(cfg, entry, False)
 
 	run_tool(cfg, args.save_logfiles)
 	for t in task_pool:
