@@ -103,9 +103,22 @@ def run_tool(cfg, save_logfiles, var = {}):
 
 
 if __name__ == '__main__':
-	from optparse import OptionParser
+	from argparse import ArgumentParser, RawTextHelpFormatter
 	from sys import exit
 	import json
+
+	parser = ArgumentParser(formatter_class = RawTextHelpFormatter)
+	parser.add_argument("--version", action = "version", version = version)
+	with open("LICENSE") as fp:
+		parser.add_argument("--show-license", action = "version", version = fp.read(),
+			help = "show program's license details and exit")
+	parser.add_argument("-v", "--verbose", action = "store_true",
+		help = "print debug log messages")
+	parser.add_argument("-o", "--save-logfiles", action = "store_true",
+		help = "save the output of each command to the specified logfile")
+	parser.add_argument("cfg", help = ".json configuration file")
+
+	args = parser.parse_args()
 
 	print(f"""==========================================================================
 = PwnChain v{version}                                                        =
@@ -118,35 +131,15 @@ if __name__ == '__main__':
 ==========================================================================
 	""")
 
-	usage = "Usage: %prog [options] config"
-	parser = OptionParser(usage = usage, version = version)
-	parser.add_option("-v", "--verbose", action = "store_true",
-		help = "Print debug log messages")
-	parser.add_option("-o", "--save-logfiles", action = "store_true",
-		help = "Save the output of each command to the specified logfile")
-	parser.add_option("--show-license", action = "store_true",
-		help = "Show license details for the usage of the program")
-	(options, args) = parser.parse_args()
-
-	if options.show_license:
-		with open("LICENSE") as fp:
-			print(fp.read())
-		exit(0)
-
-	if len(args) != 1:
-		print("Invalid number of arguments")
-		parser.print_help()
-		exit(1)
-
-	if options.verbose:
+	if args.verbose:
 		logging.basicConfig(level = logging.DEBUG)
 		logging.debug("verbose tracing enabled")
 	else:
 		logging.basicConfig(level = logging.INFO)
 
-	cfg = json.load(open(args[0]))
-	logging.debug(f"config {args[0]} read")
+	cfg = json.load(open(args.cfg))
+	logging.debug(f"config {args.cfg} read")
 
-	run_tool(cfg, options.save_logfiles)
+	run_tool(cfg, args.save_logfiles)
 	for t in task_pool:
 		t.join()
