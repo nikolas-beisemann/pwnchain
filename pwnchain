@@ -18,6 +18,7 @@
 
 
 import logging
+import re
 
 version = "0.1.0"
 task_pool = []
@@ -57,7 +58,6 @@ def run_tool(cfg, save_logfiles, var = {}):
 	Calls itself recursively, if matches are found and modules are defined in the post attribute.
 	A new thread is spawned for each match.
 	"""
-	import re
 	from threading import Thread
 
 	for (key, val) in cfg["vars"].items():
@@ -102,6 +102,16 @@ def run_tool(cfg, save_logfiles, var = {}):
 					task_pool.append(t)
 
 
+def update_cfg(cfg, mod, key, val):
+	if re.search(mod, cfg["name"]):
+		for var in cfg["vars"]:
+			if re.search(key, var):
+				logging.debug(f"set {cfg['name']}.vars.{var}={val}")
+				cfg["vars"][var] = val
+	for subcfg in cfg["post"]:
+		update_cfg(subcfg, mod, key, val)
+
+
 if __name__ == '__main__':
 	from argparse import ArgumentParser, RawTextHelpFormatter
 	from sys import exit
@@ -116,6 +126,8 @@ if __name__ == '__main__':
 		help = "print debug log messages")
 	parser.add_argument("-o", "--save-logfiles", action = "store_true",
 		help = "save the output of each command to the specified logfile")
+	parser.add_argument("-s", "--set-var", action = "append", metavar = "module:key:val",
+		help = "override a module variable specified within the configuration")
 	parser.add_argument("cfg", help = ".json configuration file")
 
 	args = parser.parse_args()
@@ -139,6 +151,11 @@ if __name__ == '__main__':
 
 	cfg = json.load(open(args.cfg))
 	logging.debug(f"config {args.cfg} read")
+
+	for entry in args.set_var:
+		(mod, key, val) = entry.split(':')
+		logging.debug(f"trying to override variable '{key}={val}' in '{mod}'")
+		update_cfg(cfg, mod, key, val)
 
 	run_tool(cfg, args.save_logfiles)
 	for t in task_pool:
