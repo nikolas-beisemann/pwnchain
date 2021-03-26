@@ -27,86 +27,97 @@ from argparse import ArgumentParser, RawTextHelpFormatter
 import json
 
 VERSION = "0.2.0"
-TASK_POOL = []
 
-def exec_cmd(cmd, logger, logfile):
-    """Generator executing a command yielding output.
+class Module:
+    """Represents a single module as defined in the config json."""
 
-    Keyword arguments:
-    cmd -- Command to execute as string
-    logger -- Used for logging
-    logfile -- Read output is stored to that file if not None
-    """
-    with Popen(cmd.split(), stdout = PIPE, stderr = None, universal_newlines = True,
-        bufsize = 1) as proc:
-        logfile_fp = None
-        if logfile:
-            try:
-                logfile_fp = open(logfile, "w")
-            except OSError:
-                logger.warning(f"failed to open {logfile} for writing")
-        for line in proc.stdout:
-            logger.debug(line)
-            if logfile_fp:
-                logfile_fp.write(line)
-            yield line
+    def __init__(self, thread_pool, cfg, var):
+        """Set up run environment."""
+        self.thread_pool = thread_pool
+        self.cfg = cfg
+        self.var = var
+        for (key, val) in self.cfg["vars"].items():
+            self.var[key] = val
+        self.logger = logging.getLogger(self.cfg["name"].format(**self.var))
 
 
-def run_tool(module, save_logfiles, var):
-    """Runs a single module defined in the config json.
+    def run(self, save_logfiles):
+        """Spawn module in separate thread."""
+        thread = Thread(target = self.run_worker, args = (save_logfiles,))
+        thread.start()
+        self.thread_pool.append(thread)
 
-    Keyword arguments:
-    module -- json config pointing to the current module
-    save_logfiles -- bool flag indicating whether to save module output
-    var -- variables currently known to the module
 
-    Calls itself recursively, if matches are found and modules are defined in the post attribute.
-    A new thread is spawned for each match.
-    """
-    for (var_key, var_val) in module["vars"].items():
-        var[var_key] = var_val
-    logger = logging.getLogger(module["name"].format(**var))
-
-    if "enabled" in module:
-        if not module["enabled"]:
-            logger.debug("skipping because module is disabled")
+    def run_worker(self, save_logfiles):
+        """Run module."""
+        if self.should_not_run():
             return
-    if "condition" in module:
-        condition = module["condition"].format(**var)
-        if eval(condition):
-            logger.debug(f"pre-condition '{condition}' passed")
-        else:
-            logger.debug(f"skipping because of pre-condition '{condition}'")
-            return
+        cmd = self.cfg["cmd"].format(**self.var)
+        patterns = []
+        for pattern_dict in self.cfg["patterns"]:
+            patterns.append({
+                "pattern": re.compile(pattern_dict["pattern"].format(**self.var)),
+                "groups": pattern_dict["groups"],
+                "log": pattern_dict["log"]
+                })
+        logfile = None
+        if save_logfiles and "logfile" in self.cfg:
+            logfile = self.cfg["logfile"].format(**self.var)
+        self.logger.debug("var=%s", self.var)
+        self.logger.debug("cmd=%s", cmd)
 
-    cmd = module["cmd"].format(**var)
-    patterns = []
-    for pattern_dict in module["patterns"]:
-        patterns.append({
-            "pattern": re.compile(pattern_dict["pattern"].format(**var)),
-            "groups": pattern_dict["groups"],
-            "log": pattern_dict["log"]
-            })
-    logfile = None
-    if save_logfiles and "logfile" in module:
-        logfile = module["logfile"].format(**var)
-    logger.debug(f"var={var}")
-    logger.debug(f"cmd={cmd}")
+        for line in self.exec_cmd(cmd, logfile):
+            for pattern_dict in patterns:
+                match = pattern_dict["pattern"].match(line)
+                if match:
+                    idx = 1
+                    for group in pattern_dict["groups"]:
+                        self.var[group.format(**self.var)] = match.group(idx)
+                        idx += 1
+                    if "log" in entry:
+                        self.logger.info(pattern_dict["log"].format(**self.var))
+                    for post_task in self.cfg["post"]:
+                        sub_task = Module(self.thread_pool, post_task, self.var)
+                        sub_task.run(save_logfiles)
 
-    for line in exec_cmd(cmd, logger, logfile):
-        for entry in patterns:
-            match = entry["pattern"].match(line)
-            if match:
-                idx = 1
-                for group in entry["groups"]:
-                    var[group] = match.group(idx)
-                    idx += 1
-                if "log" in entry:
-                    logger.info(entry["log"].format(**var))
-                for task in module["post"]:
-                    sub_task = Thread(target = run_tool, args = (task, save_logfiles, var))
-                    sub_task.start()
-                    TASK_POOL.append(sub_task)
+
+    def should_not_run(self):
+        """Check if preconditions for running the module are given."""
+        if "enabled" in self.cfg:
+            if not self.cfg["enabled"]:
+                self.logger.debug("skipping because module is disabled")
+                return True
+        if "condition" in self.cfg:
+            condition = self.cfg["condition"].format(**self.var)
+            if eval(condition):
+                self.logger.debug("pre-condition '%s' passed", condition)
+            else:
+                self.logger.debug("skipping because of pre-condition '%s'", condition)
+                return True
+        return False
+
+
+    def exec_cmd(self, cmd, logfile):
+        """Generator executing a command yielding output.
+
+        Keyword arguments:
+        cmd -- Command to execute as string
+        logger -- Used for logging
+        logfile -- Read output is stored to that file if not None
+        """
+        with Popen(cmd.split(), stdout = PIPE, stderr = None, universal_newlines = True,
+            bufsize = 1) as proc:
+            logfile_fp = None
+            if logfile:
+                try:
+                    logfile_fp = open(logfile, "w")
+                except OSError:
+                    self.logger.warning("failed to open %s for writing", logfile)
+            for line in proc.stdout:
+                self.logger.debug(line)
+                if logfile_fp:
+                    logfile_fp.write(line)
+                yield line
 
 
 def update_cfg_vars(cfg, mod, key, val):
@@ -114,7 +125,7 @@ def update_cfg_vars(cfg, mod, key, val):
     if re.search(mod, cfg["name"]):
         for var in cfg["vars"]:
             if re.search(key, var):
-                logging.debug(f"set {cfg['name']}.vars.{var}={val}")
+                logging.debug("set %s.vars.%s=%s", cfg['name'], var, val)
                 cfg["vars"][var] = val
     for subcfg in cfg["post"]:
         update_cfg_vars(subcfg, mod, key, val)
@@ -124,7 +135,7 @@ def update_cfg_enabled(cfg, mod, enabled):
     """Update enabled state of module and all submodules."""
     if re.search(mod, cfg["name"]):
         cfg["enabled"] = enabled
-        logging.debug(f"set {cfg['name']}.enabled={enabled}")
+        logging.debug("set %s.enabled=%s", cfg['name'], enabled)
     for subcfg in cfg["post"]:
         update_cfg_enabled(subcfg, mod, enabled)
 
@@ -167,12 +178,12 @@ if __name__ == '__main__':
         logging.basicConfig(level = logging.INFO)
 
     json_cfg = json.load(open(args.cfg))
-    logging.debug(f"config {args.cfg} read")
+    logging.debug("config %s read", args.cfg)
 
     if args.set_var:
         for entry in args.set_var:
             (e_mod, e_key, e_val) = entry.split(':')
-            logging.debug(f"trying to override variable '{e_key}={e_val}' in '{e_mod}'")
+            logging.debug("trying to override variable '%s=%s' in '%sq'", e_key, e_val, e_mod)
             update_cfg_vars(json_cfg, e_mod, e_key, e_val)
     if args.enable_mod:
         for entry in args.enable_mod:
@@ -181,6 +192,8 @@ if __name__ == '__main__':
         for entry in args.disable_mod:
             update_cfg_enabled(json_cfg, entry, False)
 
-    run_tool(json_cfg, args.save_logfiles, {})
-    for t in TASK_POOL:
-        t.join()
+    task_pool = []
+    task = Module(task_pool, json_cfg, {})
+    task.run(args.save_logfiles)
+    for thrd in task_pool:
+        thrd.join()
