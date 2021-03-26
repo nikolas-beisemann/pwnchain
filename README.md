@@ -30,6 +30,8 @@ pwnchain config
 
 if `/usr/bin/env` is available on your system.
 
+You can use the `-h` or `--help` option to display the various command line options available.
+
 ### Configuration
 
 Configuration files are composed in .json format. You can check out the `cfg/` directory of this repository for some usage examples.
