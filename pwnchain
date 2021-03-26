@@ -35,7 +35,7 @@ class Module:
         """Set up run environment."""
         self.thread_pool = thread_pool
         self.cfg = cfg
-        self.var = var
+        self.var = var.copy()
         for (key, val) in self.cfg["vars"].items():
             self.var[key] = val
         self.logger = logging.getLogger(self.cfg["name"].format(**self.var))
