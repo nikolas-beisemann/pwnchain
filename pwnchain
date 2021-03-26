@@ -74,7 +74,7 @@ class Module:
                     for group in pattern_dict["groups"]:
                         self.var[group.format(**self.var)] = match.group(idx)
                         idx += 1
-                    if "log" in entry:
+                    if "log" in pattern_dict:
                         self.logger.info(pattern_dict["log"].format(**self.var))
                     for post_task in self.cfg["post"]:
                         sub_task = Module(self.thread_pool, post_task, self.var)
