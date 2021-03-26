@@ -16,99 +16,153 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+"""PwnChain is a tool for cascading different tools in an automated fashion."""
+
 
 import logging
+import re
+from subprocess import Popen, PIPE
+from threading import Thread
+from argparse import ArgumentParser, RawTextHelpFormatter
+import json
+from os import path
 
-version = "0.1.0"
-task_pool = []
+VERSION = "0.2.0"
 
-def exec_cmd(cmd, logger, logfile):
-	"""Generator executing a command yielding output.
+class Module:
+    """Represents a single module as defined in the config json."""
 
-	Keyword arguments:
-	cmd -- Command to execute as string
-	logger -- Used for logging
-	logfile -- Read output is stored to that file if not None
-	"""
-	from subprocess import Popen, PIPE
-
-	with Popen(cmd.split(), stdout = PIPE, stderr = None, universal_newlines = True, bufsize = 1) as proc:
-		fp = None
-		if logfile:
-			try:
-				fp = open(logfile, "w")
-			except OSError:
-				logger.warning(f"failed to open {logfile} for writing")
-		for line in proc.stdout:
-			logger.debug(line)
-			if fp:
-				fp.write(line)
-			yield line
+    def __init__(self, thread_pool, cfg, var):
+        """Set up run environment."""
+        self.thread_pool = thread_pool
+        self.cfg = cfg
+        self.var = var.copy()
+        for (key, val) in self.cfg["vars"].items():
+            self.var[key] = val
+        self.logger = logging.getLogger(self.cfg["name"].format(**self.var))
 
 
-def run_tool(cfg, save_logfiles, var = {}):
-	"""Runs a single module defined in the config json.
+    def run(self, save_logfiles):
+        """Spawn module in separate thread."""
+        thread = Thread(target = self.run_worker, args = (save_logfiles,))
+        thread.start()
+        self.thread_pool.append(thread)
 
-	Keyword arguments:
-	cfg -- json config pointing to the current module
-	save_logfiles -- bool flag indicating whether to save module output
-	var -- variables currently known to the module
 
-	Calls itself recursively, if matches are found and modules are defined in the post attribute.
-	A new thread is spawned for each match.
-	"""
-	import re
-	from threading import Thread
+    def run_worker(self, save_logfiles):
+        """Run module."""
+        if self.should_not_run():
+            return
+        cmd = self.cfg["cmd"].format(**self.var)
+        patterns = []
+        for pattern_dict in self.cfg["patterns"]:
+            patterns.append({
+                "pattern": re.compile(pattern_dict["pattern"].format(**self.var)),
+                "groups": pattern_dict["groups"],
+                "log": pattern_dict["log"]
+                })
+        logfile = None
+        if save_logfiles and "logfile" in self.cfg:
+            logfile = save_logfiles + path.sep + self.cfg["logfile"].format(**self.var)
+        self.logger.debug("var=%s", self.var)
+        self.logger.debug("cmd=%s", cmd)
 
-	for (key, val) in cfg["vars"].items():
-		var[key] = val
-	logger = logging.getLogger(cfg["name"].format(**var))
+        for line in self.exec_cmd(cmd, logfile):
+            for pattern_dict in patterns:
+                match = pattern_dict["pattern"].match(line)
+                if match:
+                    idx = 1
+                    for group in pattern_dict["groups"]:
+                        self.var[group.format(**self.var)] = match.group(idx)
+                        idx += 1
+                    if "log" in pattern_dict:
+                        self.logger.info(pattern_dict["log"].format(**self.var))
+                    for post_task in self.cfg["post"]:
+                        sub_task = Module(self.thread_pool, post_task, self.var)
+                        sub_task.run(save_logfiles)
 
-	if "condition" in cfg:
-		condition = cfg["condition"].format(**var)
-		if eval(condition):
-			logger.debug(f"pre-condition '{condition}' passed")
-		else:
-			logger.debug(f"skipping because of pre-condition '{condition}'")
-			return
 
-	cmd = cfg["cmd"].format(**var)
-	patterns = []
-	for entry in cfg["patterns"]:
-		patterns.append({ 
-			"pattern": re.compile(entry["pattern"].format(**var)),
-			"groups": entry["groups"],
-			"log": entry["log"]
-			})
-	logfile = None
-	if save_logfiles and "logfile" in cfg:
-		logfile = cfg["logfile"].format(**var)
-	logger.debug(f"var={var}")
-	logger.debug(f"cmd={cmd}")
+    def should_not_run(self):
+        """Check if preconditions for running the module are given."""
+        if "enabled" in self.cfg:
+            if not self.cfg["enabled"]:
+                self.logger.debug("skipping because module is disabled")
+                return True
+        if "condition" in self.cfg:
+            condition = self.cfg["condition"].format(**self.var)
+            if eval(condition):
+                self.logger.debug("pre-condition '%s' passed", condition)
+            else:
+                self.logger.debug("skipping because of pre-condition '%s'", condition)
+                return True
+        return False
 
-	for line in exec_cmd(cmd, logger, logfile):
-		for entry in patterns:
-			match = entry["pattern"].match(line)
-			if match:
-				idx = 1
-				for group in entry["groups"]:
-					var[group] = match.group(idx)
-					idx += 1
-				if "log" in entry:
-					logger.info(entry["log"].format(**var))
-				for task in cfg["post"]:
-					t = Thread(target = run_tool, args = (task, save_logfiles, var))
-					t.start()
-					task_pool.append(t)
+
+    def exec_cmd(self, cmd, logfile):
+        """Generator executing a command yielding output.
+
+        Keyword arguments:
+        cmd -- Command to execute as string
+        logger -- Used for logging
+        logfile -- Read output is stored to that file if not None
+        """
+        with Popen(cmd.split(), stdout = PIPE, stderr = None, universal_newlines = True,
+            bufsize = 1) as proc:
+            logfile_fp = None
+            if logfile:
+                try:
+                    logfile_fp = open(logfile, "w")
+                except OSError:
+                    self.logger.warning("failed to open %s for writing", logfile)
+            for line in proc.stdout:
+                self.logger.debug(line)
+                if logfile_fp:
+                    logfile_fp.write(line)
+                yield line
+
+
+def update_cfg_vars(cfg, mod, key, val):
+    """Update variables of module and all submodules."""
+    if re.search(mod, cfg["name"]):
+        for var in cfg["vars"]:
+            if re.search(key, var):
+                logging.debug("set %s.vars.%s=%s", cfg['name'], var, val)
+                cfg["vars"][var] = val
+    for subcfg in cfg["post"]:
+        update_cfg_vars(subcfg, mod, key, val)
+
+
+def update_cfg_enabled(cfg, mod, enabled):
+    """Update enabled state of module and all submodules."""
+    if re.search(mod, cfg["name"]):
+        cfg["enabled"] = enabled
+        logging.debug("set %s.enabled=%s", cfg['name'], enabled)
+    for subcfg in cfg["post"]:
+        update_cfg_enabled(subcfg, mod, enabled)
 
 
 if __name__ == '__main__':
-	from optparse import OptionParser
-	from sys import exit
-	import json
+    parser = ArgumentParser(formatter_class = RawTextHelpFormatter)
+    parser.add_argument("--version", action = "version", version = VERSION)
+    with open("LICENSE") as fp:
+        parser.add_argument("--show-license", action = "version", version = fp.read(),
+            help = "show program's license details and exit")
+    parser.add_argument("-v", "--verbose", action = "store_true",
+        help = "print debug log messages")
+    parser.add_argument("-o", "--save-logfiles", metavar = "directory",
+        help = "save the output of each command to a given directory")
+    parser.add_argument("-s", "--set-var", action = "append", metavar = "module:key:val",
+        help = "override a module variable specified within the configuration")
+    parser.add_argument("--enable-mod", action = "append", metavar="module",
+        help = "enable a module which is marked enabled=False in the configuration")
+    parser.add_argument("--disable-mod", action = "append", metavar="module",
+        help = "disable a module which is marked enabled=True in the configuration")
+    parser.add_argument("cfg", help = ".json configuration file")
 
-	print(f"""==========================================================================
-= PwnChain v{version}                                                        =
+    args = parser.parse_args()
+
+    print(f"""==========================================================================
+= PwnChain v{VERSION}                                                        =
 ==========================================================================
 = Copyright (C) 2021 Nikolas Beisemann <nikolas@disroot.org>.            =
 = This program comes with ABSOLUTELY NO WARRANTY; for details use        =
@@ -116,37 +170,31 @@ if __name__ == '__main__':
 = This is free software, and you are welcome to redistribute it under    =
 = certain conditions; use '--show-license' for details.                  =
 ==========================================================================
-	""")
+    """)
 
-	usage = "Usage: %prog [options] config"
-	parser = OptionParser(usage = usage, version = version)
-	parser.add_option("-v", "--verbose", action = "store_true",
-		help = "Print debug log messages")
-	parser.add_option("-o", "--save-logfiles", action = "store_true",
-		help = "Save the output of each command to the specified logfile")
-	parser.add_option("--show-license", action = "store_true",
-		help = "Show license details for the usage of the program")
-	(options, args) = parser.parse_args()
+    if args.verbose:
+        logging.basicConfig(level = logging.DEBUG)
+        logging.debug("verbose tracing enabled")
+    else:
+        logging.basicConfig(level = logging.INFO)
 
-	if options.show_license:
-		with open("LICENSE") as fp:
-			print(fp.read())
-		exit(0)
+    json_cfg = json.load(open(args.cfg))
+    logging.debug("config %s read", args.cfg)
 
-	if len(args) != 1:
-		print("Invalid number of arguments")
-		parser.print_help()
-		exit(1)
+    if args.set_var:
+        for entry in args.set_var:
+            (e_mod, e_key, e_val) = entry.split(':')
+            logging.debug("trying to override variable '%s=%s' in '%sq'", e_key, e_val, e_mod)
+            update_cfg_vars(json_cfg, e_mod, e_key, e_val)
+    if args.enable_mod:
+        for entry in args.enable_mod:
+            update_cfg_enabled(json_cfg, entry, True)
+    if args.disable_mod:
+        for entry in args.disable_mod:
+            update_cfg_enabled(json_cfg, entry, False)
 
-	if options.verbose:
-		logging.basicConfig(level = logging.DEBUG)
-		logging.debug("verbose tracing enabled")
-	else:
-		logging.basicConfig(level = logging.INFO)
-
-	cfg = json.load(open(args[0]))
-	logging.debug(f"config {args[0]} read")
-
-	run_tool(cfg, options.save_logfiles)
-	for t in task_pool:
-		t.join()
+    task_pool = []
+    task = Module(task_pool, json_cfg, {})
+    task.run(args.save_logfiles)
+    for thrd in task_pool:
+        thrd.join()

@@ -49,6 +49,7 @@ Description of a module, identical for the root module, and any modules in the `
 | Attribute   | Description                                                                                            | Example                                |
 | ----------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
 | `name`      | Used for output logging. Mandatory.                                                                    | `"name": "service-discovery"`          |
+| `enabled`   | A boolean value indicating whether a module is executed. Defaults to true.                             | `"enabled": false`                     |
 | `condition` | Pre-condition which is evaluated to decide whether a module is executed. Can be any python expression. | `"condition": "'{protocol}' == 'ssh'"` |
 | `cmd`       | Command to be executed. Mandatory.                                                                     | `"cmd": "nmap -sV {host}"`             |
 | `vars`      | Dictionary of variables directly injected into a module.                                               | `"vars": { "host": "10.0.0.1" }`       |
