@@ -25,6 +25,7 @@ from subprocess import Popen, PIPE
 from threading import Thread
 from argparse import ArgumentParser, RawTextHelpFormatter
 import json
+from os import path
 
 VERSION = "0.2.0"
 
@@ -62,7 +63,7 @@ class Module:
                 })
         logfile = None
         if save_logfiles and "logfile" in self.cfg:
-            logfile = self.cfg["logfile"].format(**self.var)
+            logfile = save_logfiles + path.sep + self.cfg["logfile"].format(**self.var)
         self.logger.debug("var=%s", self.var)
         self.logger.debug("cmd=%s", cmd)
 
@@ -148,8 +149,8 @@ if __name__ == '__main__':
             help = "show program's license details and exit")
     parser.add_argument("-v", "--verbose", action = "store_true",
         help = "print debug log messages")
-    parser.add_argument("-o", "--save-logfiles", action = "store_true",
-        help = "save the output of each command to the specified logfile")
+    parser.add_argument("-o", "--save-logfiles", metavar = "directory",
+        help = "save the output of each command to a given directory")
     parser.add_argument("-s", "--set-var", action = "append", metavar = "module:key:val",
         help = "override a module variable specified within the configuration")
     parser.add_argument("--enable-mod", action = "append", metavar="module",
