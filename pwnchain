@@ -26,6 +26,9 @@ from threading import Thread
 from argparse import ArgumentParser, RawTextHelpFormatter
 import json
 from os import path
+from tempfile import NamedTemporaryFile
+from base64 import b64decode
+from urllib.request import urlopen
 
 VERSION = "0.2.0"
 
@@ -37,9 +40,11 @@ class Module:
         self.thread_pool = thread_pool
         self.cfg = cfg
         self.var = var.copy()
-        for (key, val) in self.cfg["vars"].items():
-            self.var[key] = val
+        if "vars" in self.cfg:
+            for (key, val) in self.cfg["vars"].items():
+                self.var[key] = val
         self.logger = logging.getLogger(self.cfg["name"].format(**self.var))
+        self.tmp_files = []
 
 
     def run(self, save_logfiles):
@@ -53,14 +58,16 @@ class Module:
         """Run module."""
         if self.should_not_run():
             return
+        self.unpack_files()
         cmd = self.cfg["cmd"].format(**self.var)
         patterns = []
-        for pattern_dict in self.cfg["patterns"]:
-            patterns.append({
-                "pattern": re.compile(pattern_dict["pattern"].format(**self.var)),
-                "groups": pattern_dict["groups"],
-                "log": pattern_dict["log"]
-                })
+        if "patterns" in self.cfg:
+            for pattern_dict in self.cfg["patterns"]:
+                patterns.append({
+                    "pattern": re.compile(pattern_dict["pattern"].format(**self.var)),
+                    "groups": pattern_dict["groups"],
+                    "log": pattern_dict["log"]
+                    })
         logfile = None
         if save_logfiles and "logfile" in self.cfg:
             logfile = save_logfiles + path.sep + self.cfg["logfile"].format(**self.var)
@@ -77,9 +84,10 @@ class Module:
                         idx += 1
                     if "log" in pattern_dict:
                         self.logger.info(pattern_dict["log"].format(**self.var))
-                    for post_task in self.cfg["post"]:
-                        sub_task = Module(self.thread_pool, post_task, self.var)
-                        sub_task.run(save_logfiles)
+                    if "post" in self.cfg:
+                        for post_task in self.cfg["post"]:
+                            sub_task = Module(self.thread_pool, post_task, self.var)
+                            sub_task.run(save_logfiles)
 
 
     def should_not_run(self):
@@ -119,6 +127,23 @@ class Module:
                 if logfile_fp:
                     logfile_fp.write(line)
                 yield line
+
+
+    def unpack_files(self):
+        """Process the files list."""
+        if not "files" in self.cfg:
+            return
+        for file_dict in self.cfg["files"]:
+            self.logger.debug("unpacking %s with type %s", file_dict["name"], file_dict["type"])
+            tmp_file = NamedTemporaryFile(buffering = 0)
+            self.tmp_files.append(tmp_file)
+            self.var[file_dict["name"]] = tmp_file.name
+            if file_dict["type"] == "text":
+                tmp_file.write(file_dict["content"].encode())
+            elif file_dict["type"] == "base64":
+                tmp_file.write(b64decode(file_dict["content"]))
+            elif file_dict["type"] == "wget":
+                tmp_file.write(urlopen(file_dict["content"]).read())
 
 
 def update_cfg_vars(cfg, mod, key, val):

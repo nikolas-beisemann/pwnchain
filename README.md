@@ -53,19 +53,28 @@ Description of a module, identical for the root module, and any modules in the `
 | `name`      | Used for output logging. Mandatory.                                                                    | `"name": "service-discovery"`          |
 | `enabled`   | A boolean value indicating whether a module is executed. Defaults to true.                             | `"enabled": false`                     |
 | `condition` | Pre-condition which is evaluated to decide whether a module is executed. Can be any python expression. | `"condition": "'{protocol}' == 'ssh'"` |
+| `files`     | List of files embedded within the module configuration.                                                | See separate description below         |
 | `cmd`       | Command to be executed. Mandatory.                                                                     | `"cmd": "nmap -sV {host}"`             |
 | `vars`      | Dictionary of variables directly injected into a module.                                               | `"vars": { "host": "10.0.0.1" }`       |
 | `patterns`  | List of pattern dictionaries for capturing variables from module output.                               | See separate description below         |
 | `logfile`   | Name of file to use if the `-o` option is used for saving tool output to files.                        | `"logfile": "nmap-{host}.log"`         |
 | `post`      | List of modules to execute for each pattern match.                                                     | `"post": []` or see `cfg/`             |
 
-The patterns list consists of the following attributes:
+The patterns list consists of dictionaries with the following attributes:
 
 | Attribute   | Description                                                                                            | Example                                |
 | ----------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
 | `pattern`   | Regular expression using capture groups for variable extraction. Mandatory.                            | `"pattern": "^(\\d+)"`                 |
 | `groups`    | List of variable names for the capture groups in order of declaration in the regex. Mandatory.         | `"groups": [ "port" ]`                 |
 | `log`       | Message format to output if a pattern was successfully matched.                                        | `"log": "Port {port} identified!"`     |
+
+The files list shall contain of dictionaries with the following attributes:
+
+| Attribute   | Description                                                                                            | Example                                |
+| ----------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| `name`      | Name of the file, which can be used as a variable by the module and its submodules. Mandatory.         | `"name": "wordlist.txt"`               |
+| `type`      | One of `text|base64|wget`, for raw text, base64 encoded content, or URI of remote content. Mandatory.  | `"type": "wget"`                       |
+| `content`   | Content as specified by `type`. Mandatory.                                                             | `"content": "http://localhost/w.txt"`  |
 
 ## License
 
