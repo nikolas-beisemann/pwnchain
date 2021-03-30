@@ -29,6 +29,7 @@ from os import path
 from tempfile import NamedTemporaryFile
 from base64 import b64decode
 from urllib.request import urlopen
+from sys import stdin
 
 VERSION = "0.2.0"
 
@@ -182,7 +183,7 @@ if __name__ == '__main__':
         help = "enable a module which is marked enabled=False in the configuration")
     parser.add_argument("--disable-mod", action = "append", metavar="module",
         help = "disable a module which is marked enabled=True in the configuration")
-    parser.add_argument("cfg", help = ".json configuration file")
+    parser.add_argument("cfg", nargs = '?', help = ".json configuration file")
 
     args = parser.parse_args()
 
@@ -203,8 +204,11 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level = logging.INFO)
 
-    json_cfg = json.load(open(args.cfg))
-    logging.debug("config %s read", args.cfg)
+    cfg_data = stdin
+    if args.cfg:
+        cfg_data = open(args.cfg)
+    json_cfg = json.load(cfg_data)
+    logging.debug("config %s read", json_cfg)
 
     if args.set_var:
         for entry in args.set_var:
