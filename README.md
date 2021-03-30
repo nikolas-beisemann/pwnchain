@@ -73,7 +73,7 @@ The files list shall contain of dictionaries with the following attributes:
 | Attribute   | Description                                                                                            | Example                                |
 | ----------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
 | `name`      | Name of the file, which can be used as a variable by the module and its submodules. Mandatory.         | `"name": "wordlist.txt"`               |
-| `type`      | One of `text|base64|wget`, for raw text, base64 encoded content, or URI of remote content. Mandatory.  | `"type": "wget"`                       |
+| `type`      | One of `text,base64,wget`, for raw text, base64 encoded content, or URI of remote content. Mandatory.  | `"type": "wget"`                       |
 | `content`   | Content as specified by `type`. Mandatory.                                                             | `"content": "http://localhost/w.txt"`  |
 
 ## License
