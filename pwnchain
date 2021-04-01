@@ -18,12 +18,12 @@
 
 """PwnChain is a tool for cascading different tools in an automated fashion."""
 
-from pwnchain_module import Module
 import logging
 import re
 from argparse import ArgumentParser, RawTextHelpFormatter
 import json
 from sys import stdin
+from pwnchain_module import Module
 
 
 VERSION = "0.2.0"
