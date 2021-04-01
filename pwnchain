@@ -85,10 +85,17 @@ class Module:
                         idx += 1
                     if "log" in pattern_dict:
                         self.logger.info(pattern_dict["log"].format(**self.var))
-                    if "post" in self.cfg:
-                        for post_task in self.cfg["post"]:
-                            sub_task = Module(self.thread_pool, post_task, self.var)
-                            sub_task.run(save_logfiles)
+                    self.run_submodules("on_match", save_logfiles)
+
+        self.run_submodules("always", save_logfiles)
+
+
+    def run_submodules(self, modgroup, save_logfiles):
+        """Run submodules within the modgroup list."""
+        if "submodules" in self.cfg and modgroup in self.cfg["submodules"]:
+            for post_task in self.cfg["submodules"][modgroup]:
+                sub_task = Module(self.thread_pool, post_task, self.var)
+                sub_task.run(save_logfiles)
 
 
     def should_not_run(self):
@@ -154,8 +161,11 @@ def update_cfg_vars(cfg, mod, key, val):
             if re.search(key, var):
                 logging.debug("set %s.vars.%s=%s", cfg['name'], var, val)
                 cfg["vars"][var] = val
-    for subcfg in cfg["post"]:
-        update_cfg_vars(subcfg, mod, key, val)
+    if "submodules" in cfg:
+        for subtype in [ "on_match", "always" ]:
+            if subtype in cfg["submodules"]:
+                for subcfg in cfg["submodules"][subtype]:
+                    update_cfg_vars(subcfg, mod, key, val)
 
 
 def update_cfg_enabled(cfg, mod, enabled):
@@ -163,8 +173,11 @@ def update_cfg_enabled(cfg, mod, enabled):
     if re.search(mod, cfg["name"]):
         cfg["enabled"] = enabled
         logging.debug("set %s.enabled=%s", cfg['name'], enabled)
-    for subcfg in cfg["post"]:
-        update_cfg_enabled(subcfg, mod, enabled)
+    if "submodules" in cfg:
+        for subtype in [ "on_match", "always" ]:
+            if subtype in cfg["submodules"]:
+                for subcfg in cfg["submodules"][subtype]:
+                    update_cfg_enabled(subcfg, mod, enabled)
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 	"name": "service-discovery",
 	"cmd": "nmap -sV {host}",
 	"vars": {
-		"host": "10.10.20.166",
+		"host": "localhost",
 		"_service": "http|https"
 	},
 	"patterns": [
@@ -17,25 +17,26 @@
 		}
 	],
 	"logfile": "nmap_{host}.log",
-	"post": [
-		{
-			"condition": "'{protocol}' in ['http', 'https']",
-			"name": "directory-enum-{port}",
-			"cmd": "gobuster dir -w {_wordlist} -u {protocol}://{host}:{port} -z -q",
-			"vars": {
-				"_wordlist": "/usr/share/wordlists/directory-list-2.3-small.txt"
-			},
-			"patterns": [
-				{
-					"pattern": "^\\s*/(\\w+)",
-					"groups": [
-						"url"
-					],
-					"log": "found {protocol}://{host}:{port}/{url}"
-				}
-			],
-			"logfile": "gobuster_{host}_{port}.log",
-			"post": []
-		}
-	]
+	"submodules": {
+		"on_match": [
+			{
+				"condition": "'{protocol}' in ['http', 'https']",
+				"name": "directory-enum-{port}",
+				"cmd": "gobuster dir -w {_wordlist} -u {protocol}://{host}:{port} -z -q",
+				"vars": {
+					"_wordlist": "/usr/share/wordlists/directory-list-2.3-small.txt"
+				},
+				"patterns": [
+					{
+						"pattern": "^\\s*/(\\w+)",
+						"groups": [
+							"url"
+						],
+						"log": "found {protocol}://{host}:{port}/{url}"
+					}
+				],
+				"logfile": "gobuster_{host}_{port}.log"
+			}
+		]
+	}
 }
