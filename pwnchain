@@ -18,140 +18,15 @@
 
 """PwnChain is a tool for cascading different tools in an automated fashion."""
 
-
+from pwnchain_module import Module
 import logging
 import re
-from subprocess import Popen, PIPE
-from threading import Thread
 from argparse import ArgumentParser, RawTextHelpFormatter
 import json
-from os import path
-from tempfile import NamedTemporaryFile
-from base64 import b64decode
-from urllib.request import urlopen
 from sys import stdin
 
+
 VERSION = "0.2.0"
-
-class Module:
-    """Represents a single module as defined in the config json."""
-
-    def __init__(self, thread_pool, cfg, var):
-        """Set up run environment."""
-        self.thread_pool = thread_pool
-        self.cfg = cfg
-        self.var = var.copy()
-        if "vars" in self.cfg:
-            for (key, val) in self.cfg["vars"].items():
-                self.var[key] = val
-        self.logger = logging.getLogger(self.cfg["name"].format(**self.var))
-        self.tmp_files = []
-
-
-    def run(self, save_logfiles):
-        """Spawn module in separate thread."""
-        thread = Thread(target = self.run_worker, args = (save_logfiles,))
-        thread.start()
-        self.thread_pool.append(thread)
-
-
-    def run_worker(self, save_logfiles):
-        """Run module."""
-        if self.should_not_run():
-            return
-        self.unpack_files()
-        cmd = self.cfg["cmd"].format(**self.var)
-        patterns = []
-        if "patterns" in self.cfg:
-            for pattern_dict in self.cfg["patterns"]:
-                patterns.append({
-                    "pattern": re.compile(pattern_dict["pattern"].format(**self.var)),
-                    "groups": pattern_dict["groups"],
-                    "log": pattern_dict["log"]
-                    })
-        logfile = None
-        if save_logfiles and "logfile" in self.cfg:
-            logfile = save_logfiles + path.sep + self.cfg["logfile"].format(**self.var)
-        self.logger.debug("var=%s", self.var)
-        self.logger.debug("cmd=%s", cmd)
-
-        for line in self.exec_cmd(cmd, logfile):
-            for pattern_dict in patterns:
-                match = pattern_dict["pattern"].match(line)
-                if match:
-                    idx = 1
-                    for group in pattern_dict["groups"]:
-                        self.var[group.format(**self.var)] = match.group(idx)
-                        idx += 1
-                    if "log" in pattern_dict:
-                        self.logger.info(pattern_dict["log"].format(**self.var))
-                    self.run_submodules("on_match", save_logfiles)
-
-        self.run_submodules("always", save_logfiles)
-
-
-    def run_submodules(self, modgroup, save_logfiles):
-        """Run submodules within the modgroup list."""
-        if "submodules" in self.cfg and modgroup in self.cfg["submodules"]:
-            for post_task in self.cfg["submodules"][modgroup]:
-                sub_task = Module(self.thread_pool, post_task, self.var)
-                sub_task.run(save_logfiles)
-
-
-    def should_not_run(self):
-        """Check if preconditions for running the module are given."""
-        if "enabled" in self.cfg:
-            if not self.cfg["enabled"]:
-                self.logger.debug("skipping because module is disabled")
-                return True
-        if "condition" in self.cfg:
-            condition = self.cfg["condition"].format(**self.var)
-            if eval(condition):
-                self.logger.debug("pre-condition '%s' passed", condition)
-            else:
-                self.logger.debug("skipping because of pre-condition '%s'", condition)
-                return True
-        return False
-
-
-    def exec_cmd(self, cmd, logfile):
-        """Generator executing a command yielding output.
-
-        Keyword arguments:
-        cmd -- Command to execute as string
-        logger -- Used for logging
-        logfile -- Read output is stored to that file if not None
-        """
-        with Popen(cmd.split(), stdout = PIPE, stderr = None, universal_newlines = True,
-            bufsize = 1) as proc:
-            logfile_fp = None
-            if logfile:
-                try:
-                    logfile_fp = open(logfile, "w")
-                except OSError:
-                    self.logger.warning("failed to open %s for writing", logfile)
-            for line in proc.stdout:
-                self.logger.debug(line)
-                if logfile_fp:
-                    logfile_fp.write(line)
-                yield line
-
-
-    def unpack_files(self):
-        """Process the files list."""
-        if not "files" in self.cfg:
-            return
-        for file_dict in self.cfg["files"]:
-            self.logger.debug("unpacking %s with type %s", file_dict["name"], file_dict["type"])
-            tmp_file = NamedTemporaryFile(buffering = 0)
-            self.tmp_files.append(tmp_file)
-            self.var[file_dict["name"]] = tmp_file.name
-            if file_dict["type"] == "text":
-                tmp_file.write(file_dict["content"].encode())
-            elif file_dict["type"] == "base64":
-                tmp_file.write(b64decode(file_dict["content"]))
-            elif file_dict["type"] == "wget":
-                tmp_file.write(urlopen(file_dict["content"]).read())
 
 
 def update_cfg_vars(cfg, mod, key, val):
@@ -235,8 +110,6 @@ if __name__ == '__main__':
         for entry in args.disable_mod:
             update_cfg_enabled(json_cfg, entry, False)
 
-    task_pool = []
-    task = Module(task_pool, json_cfg, {})
+    task = Module(cfg=json_cfg)
     task.run(args.save_logfiles)
-    for thrd in task_pool:
-        thrd.join()
+    task.wait_until_complete()
