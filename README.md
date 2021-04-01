@@ -58,7 +58,15 @@ Description of a module, identical for the root module, and any modules in the `
 | `vars`      | Dictionary of variables directly injected into a module.                                               | `"vars": { "host": "10.0.0.1" }`       |
 | `patterns`  | List of pattern dictionaries for capturing variables from module output.                               | See separate description below         |
 | `logfile`   | Name of file to use if the `-o` option is used for saving tool output to files.                        | `"logfile": "nmap-{host}.log"`         |
-| `post`      | List of modules to execute for each pattern match.                                                     | `"post": []` or see `cfg/`             |
+| `submodules`| Dictionary of submodules to be executed after the command has run.                                     | See separate description below         |
+
+The files list shall contain of dictionaries with the following attributes:
+
+| Attribute   | Description                                                                                            | Example                                |
+| ----------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| `name`      | Name of the file, which can be used as a variable by the module and its submodules. Mandatory.         | `"name": "wordlist.txt"`               |
+| `type`      | One of `text,base64,wget`, for raw text, base64 encoded content, or URI of remote content. Mandatory.  | `"type": "wget"`                       |
+| `content`   | Content as specified by `type`. Mandatory.                                                             | `"content": "http://localhost/w.txt"`  |
 
 The patterns list consists of dictionaries with the following attributes:
 
@@ -68,13 +76,13 @@ The patterns list consists of dictionaries with the following attributes:
 | `groups`    | List of variable names for the capture groups in order of declaration in the regex. Mandatory.         | `"groups": [ "port" ]`                 |
 | `log`       | Message format to output if a pattern was successfully matched.                                        | `"log": "Port {port} identified!"`     |
 
-The files list shall contain of dictionaries with the following attributes:
+The submodules dictionary may consist of the following attributes:
 
 | Attribute   | Description                                                                                            | Example                                |
 | ----------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
-| `name`      | Name of the file, which can be used as a variable by the module and its submodules. Mandatory.         | `"name": "wordlist.txt"`               |
-| `type`      | One of `text,base64,wget`, for raw text, base64 encoded content, or URI of remote content. Mandatory.  | `"type": "wget"`                       |
-| `content`   | Content as specified by `type`. Mandatory.                                                             | `"content": "http://localhost/w.txt"`  |
+| `on_match`  | List of modules to be run when matching a pattern from the `patterns` list.                            | `"on_match": []"`                      |
+| `always`    | List of modules to always run after `cmd` has been executed.                                           | `"always": []"`                        |
+
 
 ## License
 
