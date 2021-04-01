@@ -85,13 +85,15 @@ class Module:
                         idx += 1
                     if "log" in pattern_dict:
                         self.logger.info(pattern_dict["log"].format(**self.var))
-                    if "submodules" in self.cfg and "on_match" in self.cfg["submodules"]:
-                        for post_task in self.cfg["submodules"]["on_match"]:
-                            sub_task = Module(self.thread_pool, post_task, self.var)
-                            sub_task.run(save_logfiles)
+                    self.run_submodules("on_match", save_logfiles)
 
-        if "submodules" in self.cfg and "always" in self.cfg["submodules"]:
-            for post_task in self.cfg["submodules"]["always"]:
+        self.run_submodules("always", save_logfiles)
+
+
+    def run_submodules(self, modgroup, save_logfiles):
+        """Run submodules within the modgroup list."""
+        if "submodules" in self.cfg and modgroup in self.cfg["submodules"]:
+            for post_task in self.cfg["submodules"][modgroup]:
                 sub_task = Module(self.thread_pool, post_task, self.var)
                 sub_task.run(save_logfiles)
 
@@ -164,7 +166,7 @@ def update_cfg_vars(cfg, mod, key, val):
             if subtype in cfg["submodules"]:
                 for subcfg in cfg["submodules"][subtype]:
                     update_cfg_vars(subcfg, mod, key, val)
-    
+
 
 def update_cfg_enabled(cfg, mod, enabled):
     """Update enabled state of module and all submodules."""
