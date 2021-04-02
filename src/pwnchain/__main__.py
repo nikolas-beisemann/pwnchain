@@ -19,48 +19,20 @@
 """PwnChain is a tool for cascading different tools in an automated fashion."""
 
 import logging
-import re
 from argparse import ArgumentParser, RawTextHelpFormatter
 import json
 from sys import stdin
-from pwnchain_module import Module
-
-
-VERSION = "0.2.0"
-
-
-def update_cfg_vars(cfg, mod, key, val):
-    """Update variables of module and all submodules."""
-    if re.search(mod, cfg["name"]):
-        for var in cfg["vars"]:
-            if re.search(key, var):
-                logging.debug("set %s.vars.%s=%s", cfg['name'], var, val)
-                cfg["vars"][var] = val
-    if "submodules" in cfg:
-        for subtype in [ "on_match", "always" ]:
-            if subtype in cfg["submodules"]:
-                for subcfg in cfg["submodules"][subtype]:
-                    update_cfg_vars(subcfg, mod, key, val)
-
-
-def update_cfg_enabled(cfg, mod, enabled):
-    """Update enabled state of module and all submodules."""
-    if re.search(mod, cfg["name"]):
-        cfg["enabled"] = enabled
-        logging.debug("set %s.enabled=%s", cfg['name'], enabled)
-    if "submodules" in cfg:
-        for subtype in [ "on_match", "always" ]:
-            if subtype in cfg["submodules"]:
-                for subcfg in cfg["submodules"][subtype]:
-                    update_cfg_enabled(subcfg, mod, enabled)
+import pwnchain
+import pwnchain.module
+import pwnchain.config
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(formatter_class = RawTextHelpFormatter)
-    parser.add_argument("--version", action = "version", version = VERSION)
-    with open("LICENSE") as fp:
-        parser.add_argument("--show-license", action = "version", version = fp.read(),
-            help = "show program's license details and exit")
+    parser = ArgumentParser(usage = "usage: pwnchain [options]",
+        formatter_class = RawTextHelpFormatter)
+    parser.add_argument("--version", action = "version", version = pwnchain.VERSION)
+    parser.add_argument("--show-license", action = "version", version = pwnchain.LICENSE,
+        help = "show program's license details and exit")
     parser.add_argument("-v", "--verbose", action = "store_true",
         help = "print debug log messages")
     parser.add_argument("-o", "--save-logfiles", metavar = "directory",
@@ -76,7 +48,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     print(f"""==========================================================================
-= PwnChain v{VERSION}                                                        =
+= PwnChain v{pwnchain.VERSION}                                                        =
 ==========================================================================
 = Copyright (C) 2021 Nikolas Beisemann <nikolas@disroot.org>.            =
 = This program comes with ABSOLUTELY NO WARRANTY; for details use        =
@@ -102,14 +74,14 @@ if __name__ == '__main__':
         for entry in args.set_var:
             (e_mod, e_key, e_val) = entry.split(':')
             logging.debug("trying to override variable '%s=%s' in '%sq'", e_key, e_val, e_mod)
-            update_cfg_vars(json_cfg, e_mod, e_key, e_val)
+            pwnchain.config.update_cfg_vars(json_cfg, e_mod, e_key, e_val)
     if args.enable_mod:
         for entry in args.enable_mod:
-            update_cfg_enabled(json_cfg, entry, True)
+            pwnchain.config.update_cfg_enabled(json_cfg, entry, True)
     if args.disable_mod:
         for entry in args.disable_mod:
-            update_cfg_enabled(json_cfg, entry, False)
+            pwnchain.config.update_cfg_enabled(json_cfg, entry, False)
 
-    task = Module(cfg=json_cfg)
+    task = pwnchain.module.Module(cfg=json_cfg)
     task.run(args.save_logfiles)
     task.wait_until_complete()

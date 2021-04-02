@@ -14,23 +14,54 @@ PwnChain executes shell commands as instructed by the configuration file.
 
 **You should never use configuration files that you do not fully understand.**
 
+## Installation
+
+PwnChain requires at least Python 3.8 to run.
+
+### pip (Recommended)
+
+```
+python3 -m pip install --upgrade pwnchain
+```
+
+### Build Package
+
+```
+cd $PWNCHAIN_ROOT
+python3 -m pip install --upgrade build
+python3 -m build
+python3 -m pip install --upgrade dist/pwnchain-*.tar.gz
+```
+
+#### Run Tests
+
+```
+pytest
+```
+
+or
+
+```
+cd src
+python3 -m pytest ../tests
+```
+
+The latter is especially helpful during development.
+
+
 ## Usage
 
-PwnChain can be executed anywhere where Python3 is available with 
-
 ```
-python3 pwnchain config
+python3 -m pwnchain
 ```
-
-or just 
-
-```
-pwnchain config
-``` 
-
-if `/usr/bin/env` is available on your system.
 
 You can use the `-h` or `--help` option to display the various command line options available.
+
+### Example usage
+
+```
+python3 -m pwnchain cfg/enumerate.json -sserv:host:10.0.0.1
+```
 
 ### Configuration
 
